@@ -1,17 +1,12 @@
 import sqlite3
+from datetime import datetime
 
 DB_NAME = "lifehacks.db"
 
 def init_db():
     """
     Create the hacks table if it does not exist.
-    The table has these columns:
-    - id (primary key)
-    - user (text)
-    - tip (text)
-    - date (text)
-    - language (text)
-    - category (text)
+    Added: upvotes (int), image_url (text).
     """
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -23,7 +18,9 @@ def init_db():
             tip TEXT NOT NULL,
             date TEXT NOT NULL,
             language TEXT,
-            category TEXT
+            category TEXT,
+            upvotes INTEGER DEFAULT 0,
+            image_url TEXT
         )
         """
     )
@@ -33,62 +30,58 @@ def init_db():
 
 def add_missing_columns():
     """
-    Check existing columns in 'hacks' table and add missing ones.
-    Specifically checks for 'language' and 'category'.
-    Run this once at app start to keep schema up to date.
+    Add missing columns to hacks table without losing data.
     """
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    try:
-        cur.execute("PRAGMA table_info(hacks)")
-        columns = [col_info[1] for col_info in cur.fetchall()]  # list of column names
-        # Add missing 'language' column if necessary
-        if "language" not in columns:
-            cur.execute("ALTER TABLE hacks ADD COLUMN language TEXT")
-            conn.commit()
-        # Add missing 'category' column if necessary
-        if "category" not in columns:
-            cur.execute("ALTER TABLE hacks ADD COLUMN category TEXT")
-            conn.commit()
-    except sqlite3.OperationalError as e:
-        print("Error updating schema:", e)
-    finally:
-        cur.close()
-        conn.close()
+    cur.execute("PRAGMA table_info(hacks)")
+    columns = [col[1] for col in cur.fetchall()]
 
-# Call these two functions at the module load or app start
+    alter_statements = []
+    if "language" not in columns:
+        alter_statements.append("ALTER TABLE hacks ADD COLUMN language TEXT")
+    if "category" not in columns:
+        alter_statements.append("ALTER TABLE hacks ADD COLUMN category TEXT")
+    if "upvotes" not in columns:
+        alter_statements.append("ALTER TABLE hacks ADD COLUMN upvotes INTEGER DEFAULT 0")
+    if "image_url" not in columns:
+        alter_statements.append("ALTER TABLE hacks ADD COLUMN image_url TEXT")
+
+    for stmt in alter_statements:
+        cur.execute(stmt)
+        conn.commit()
+
+    cur.close()
+    conn.close()
+
+# Init and ensure schema is updated
 init_db()
 add_missing_columns()
 
-def insert_hack(user, tip, date, language, category):
+def insert_hack(user, tip, date=None, language=None, category=None, image_url=None):
     """
     Insert a new hack into the database.
     """
+    if not date:
+        date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO hacks (user, tip, date, language, category)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO hacks (user, tip, date, language, category, upvotes, image_url)
+        VALUES (?, ?, ?, ?, ?, 0, ?)
         """,
-        (user, tip, date, language, category),
+        (user, tip, date, language, category, image_url),
     )
     conn.commit()
     cur.close()
     conn.close()
 
 def get_hacks():
-    """
-    Retrieve all hacks ordered by date descending.
-    """
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
     cur.execute(
-        """
-        SELECT id, user, tip, date, language, category
-        FROM hacks
-        ORDER BY date DESC
-        """
+        "SELECT id, user, tip, date, language, category, upvotes, image_url FROM hacks ORDER BY date DESC"
     )
     rows = cur.fetchall()
     cur.close()
@@ -96,22 +89,43 @@ def get_hacks():
     return rows
 
 def search_hacks(keyword):
-    """
-    Search hacks by keyword in tip (case-insensitive).
-    """
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    search_pattern = f"%{keyword}%"
+    pattern = f"%{keyword}%"
     cur.execute(
-        """
-        SELECT id, user, tip, date, language, category
-        FROM hacks
-        WHERE tip LIKE ?
-        ORDER BY date DESC
-        """,
-        (search_pattern,),
+        "SELECT id, user, tip, date, language, category, upvotes, image_url FROM hacks WHERE tip LIKE ? ORDER BY date DESC",
+        (pattern,),
     )
     rows = cur.fetchall()
     cur.close()
     conn.close()
     return rows
+
+def get_hacks_by_category(category):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    if category.lower() == "all":
+        cur.execute("SELECT id, user, tip, date, language, category, upvotes, image_url FROM hacks ORDER BY date DESC")
+    else:
+        cur.execute("SELECT id, user, tip, date, language, category, upvotes, image_url FROM hacks WHERE category=? ORDER BY date DESC", (category,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def get_hack_by_id(hack_id):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT id, user, tip, date, language, category, upvotes, image_url FROM hacks WHERE id=?", (hack_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row
+
+def upvote_hack(hack_id):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("UPDATE hacks SET upvotes = upvotes + 1 WHERE id=?", (hack_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
