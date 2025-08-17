@@ -15,6 +15,16 @@ def init_db():
             image_url TEXT
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS translations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hack_id INTEGER NOT NULL,
+            target_lang TEXT NOT NULL,
+            translated_text TEXT NOT NULL,
+            UNIQUE(hack_id, target_lang),
+            FOREIGN KEY (hack_id) REFERENCES hacks(id) ON DELETE CASCADE
+        )
+    """)
     conn.commit()
     return conn, cursor
 
@@ -53,3 +63,21 @@ def get_hacks_by_category(category):
             ORDER BY date DESC
         """, (category,))
     return cursor.fetchall()
+
+# Insert or update a translation for a hack
+def insert_translation(hack_id, target_lang, translated_text):
+    cursor.execute("""
+        INSERT OR REPLACE INTO translations (hack_id, target_lang, translated_text)
+        VALUES (?, ?, ?)
+    """, (hack_id, target_lang, translated_text))
+    conn.commit()
+
+# Get cached translation if exists
+def get_translation(hack_id, target_lang):
+    cursor.execute("""
+        SELECT translated_text FROM translations WHERE hack_id=? AND target_lang=?
+    """, (hack_id, target_lang))
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+    return None
